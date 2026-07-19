@@ -1,0 +1,49 @@
+name: Release a new track
+
+on:
+  schedule:
+    # Every Monday at 15:00 UTC. Adjust to taste.
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to SoundCloud (uncheck for a dry run)"
+        type: boolean
+        default: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      - name: Run the agent pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
+          SUNO_API_BASE_URL: ${{ vars.SUNO_API_BASE_URL }}
+          SUNO_API_KEY: ${{ secrets.SUNO_API_KEY }}
+          SUNO_MODEL: ${{ vars.SUNO_MODEL || 'V4_5' }}
+          SOUNDCLOUD_CLIENT_ID: ${{ secrets.SOUNDCLOUD_CLIENT_ID }}
+          SOUNDCLOUD_CLIENT_SECRET: ${{ secrets.SOUNDCLOUD_CLIENT_SECRET }}
+          SOUNDCLOUD_REFRESH_TOKEN: ${{ secrets.SOUNDCLOUD_REFRESH_TOKEN }}
+        run: vibemusicians --verbose run --publish=${{ github.event.inputs.publish != 'false' }}
+
+      # The persona/track database is regenerated fresh in CI unless you persist
+      # it — commit `data/vibemusicians.db` back, or move it to an external
+      # store, so the artist persona stays consistent across scheduled runs.
+      - name: Persist persona/track database
+        if: always()
+        run: |
+          git config user.name "vibemusicians-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -f data/vibemusicians.db
+          git diff --cached --quiet || git commit -m "chore: update track database [skip ci]"
+          git push

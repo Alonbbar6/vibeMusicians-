@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Local secrets & generated state — never commit
+.env
+data/
+*.db
+*.sqlite3
+
+# Audio/media output
+*.mp3
+*.wav
