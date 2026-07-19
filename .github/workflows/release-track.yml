@@ -28,13 +28,20 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_MODEL: ${{ vars.CLAUDE_MODEL || 'claude-opus-4-8' }}
-          SUNO_API_BASE_URL: ${{ vars.SUNO_API_BASE_URL }}
+          SUNO_API_BASE_URL: ${{ vars.SUNO_API_BASE_URL || 'https://api.kie.ai' }}
           SUNO_API_KEY: ${{ secrets.SUNO_API_KEY }}
           SUNO_MODEL: ${{ vars.SUNO_MODEL || 'V4_5' }}
           SOUNDCLOUD_CLIENT_ID: ${{ secrets.SOUNDCLOUD_CLIENT_ID }}
           SOUNDCLOUD_CLIENT_SECRET: ${{ secrets.SOUNDCLOUD_CLIENT_SECRET }}
           SOUNDCLOUD_REFRESH_TOKEN: ${{ secrets.SOUNDCLOUD_REFRESH_TOKEN }}
-        run: vibemusicians --verbose run --publish=${{ github.event.inputs.publish != 'false' }}
+        # Typer/Click boolean options are --publish / --no-publish (no "=value" form),
+        # so branch on the input instead of interpolating it into a single flag.
+        run: |
+          if [ "${{ github.event.inputs.publish }}" = "false" ]; then
+            vibemusicians --verbose run --no-publish
+          else
+            vibemusicians --verbose run --publish
+          fi
 
       # The persona/track database is regenerated fresh in CI unless you persist
       # it — commit `data/vibemusicians.db` back, or move it to an external
@@ -42,8 +49,12 @@ jobs:
       - name: Persist persona/track database
         if: always()
         run: |
-          git config user.name "vibemusicians-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add -f data/vibemusicians.db
-          git diff --cached --quiet || git commit -m "chore: update track database [skip ci]"
-          git push
+          if [ -f data/vibemusicians.db ]; then
+            git config user.name "vibemusicians-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add -f data/vibemusicians.db
+            git diff --cached --quiet || git commit -m "chore: update track database [skip ci]"
+            git push
+          else
+            echo "No database file to persist (pipeline didn't get far enough to create one)."
+          fi
