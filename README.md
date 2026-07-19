@@ -49,15 +49,20 @@ Used for trend research, persona creation, and songwriting. Get a key at
 ### 2. Suno
 
 **There is no official public Suno API yet** (Suno announced an invite-only
-developer partner program in July 2026). This project talks to Suno through
-`SunoClient` in `src/vibemusicians/providers/suno.py`, written against the
-request/response shape shared by common third-party "Suno API" wrappers
-(sunoapi.org, kie.ai, apibox.erweima.ai, and similar resellers — they all
-converge on a `POST /api/v1/generate` + `GET /api/v1/generate/record-info`
-pattern). Sign up with one of those, set `SUNO_API_BASE_URL` and
-`SUNO_API_KEY` in `.env`. If your provider's field names differ slightly,
-`providers/suno.py` is the one file to adjust — nothing else in the pipeline
-talks to Suno directly.
+developer partner program in July 2026). This project talks to Suno through a
+third-party wrapper, defaulting to **[kie.ai](https://kie.ai)**:
+
+1. Sign up at <https://kie.ai> and grab an API key from the dashboard
+   (API Keys page).
+2. Set `SUNO_API_KEY` in `.env`. `SUNO_API_BASE_URL` already defaults to
+   `https://api.kie.ai`.
+
+`SunoClient` (`src/vibemusicians/providers/suno.py`) is written against
+kie.ai's documented API (`docs.kie.ai/suno-api`): `POST /api/v1/generate` to
+submit a job, `GET /api/v1/generate/record-info?taskId=...` to poll it. Other
+resellers with a compatible shape (sunoapi.org, apibox.erweima.ai) work too —
+just point `SUNO_API_BASE_URL` at them; if their field names differ slightly,
+`providers/suno.py` is the one file to adjust.
 
 ### 3. SoundCloud
 

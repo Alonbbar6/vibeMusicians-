@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     claude_model: str = "claude-opus-4-8"
 
-    # Suno (generic third-party wrapper — see .env.example)
-    suno_api_base_url: str = "https://api.sunoapi.org"
+    # Suno (third-party wrapper — see .env.example)
+    suno_api_base_url: str = "https://api.kie.ai"
     suno_api_key: str | None = None
     suno_model: str = "V4_5"
 
