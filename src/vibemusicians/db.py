@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS tracks (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS trend_cache (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    brief TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -223,3 +229,31 @@ def count_recent_publishes(db_path: Path, artist_id: int, days: int = 7) -> int:
             (artist_id, f"-{days} days"),
         ).fetchone()
         return int(row["n"])
+
+
+def get_cached_trend_brief(db_path: Path, max_age_hours: int) -> str | None:
+    """Return the cached trend brief if it's still within `max_age_hours`, else None.
+
+    Trends don't meaningfully shift between songs generated minutes (or even
+    hours) apart, so reusing a recent brief avoids paying for a fresh,
+    multi-round web-search research call on every single song.
+    """
+    with connect(db_path) as conn:
+        row = conn.execute("SELECT brief, created_at FROM trend_cache WHERE id = 1").fetchone()
+        if not row:
+            return None
+        age_hours = conn.execute(
+            "SELECT (julianday('now') - julianday(?)) * 24 AS hours", (row["created_at"],)
+        ).fetchone()["hours"]
+        return row["brief"] if age_hours <= max_age_hours else None
+
+
+def save_trend_brief(db_path: Path, brief: str) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO trend_cache (id, brief, created_at) VALUES (1, ?, datetime('now'))
+            ON CONFLICT(id) DO UPDATE SET brief = excluded.brief, created_at = excluded.created_at
+            """,
+            (brief,),
+        )

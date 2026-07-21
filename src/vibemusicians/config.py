@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     # MAX_ARTISTS in .env.
     max_artists: int = 3
 
+    # How long a cached trend research brief stays valid before a fresh (paid,
+    # multi-round web-search) research call is made again. Trends don't shift
+    # meaningfully hour to hour, so reusing one avoids re-researching for
+    # every song. Adjust via TREND_CACHE_HOURS in .env.
+    trend_cache_hours: int = 24
+
     # Local storage
     data_dir: Path = Path("data")
 

@@ -23,7 +23,11 @@ def research(client: anthropic.Anthropic, model: str, prompt: str) -> str:
     response = client.messages.create(
         model=model,
         max_tokens=4096,
-        tools=[{"type": "web_search_20260209", "name": "web_search"}],
+        # max_uses bounds how many searches (and how much scraped page content)
+        # a single call can pull in — without it, nothing stops the model from
+        # using all 10 server-side rounds every time, each one adding page
+        # content to the bill.
+        tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": 4}],
         messages=[{"role": "user", "content": prompt}],
     )
     parts = [block.text for block in response.content if block.type == "text"]

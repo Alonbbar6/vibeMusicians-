@@ -143,8 +143,13 @@ def artist_create(direction: str = typer.Option(None, help="Creative direction h
 
     claude = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    typer.echo("Researching current music trends...")
-    trend_brief = trend_research.run(claude, settings.claude_model)
+    trend_brief = db.get_cached_trend_brief(settings.db_path, settings.trend_cache_hours)
+    if trend_brief:
+        typer.echo(f"Using cached trend research (< {settings.trend_cache_hours}h old)")
+    else:
+        typer.echo("Researching current music trends...")
+        trend_brief = trend_research.run(claude, settings.claude_model)
+        db.save_trend_brief(settings.db_path, trend_brief)
 
     typer.echo("Inventing artist...")
     invented = persona.invent(

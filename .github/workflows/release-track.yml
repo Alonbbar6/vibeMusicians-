@@ -45,6 +45,7 @@ jobs:
           SOUNDCLOUD_REFRESH_TOKEN: ${{ secrets.SOUNDCLOUD_REFRESH_TOKEN }}
           WEEKLY_UPLOAD_LIMIT: ${{ vars.WEEKLY_UPLOAD_LIMIT || '15' }}
           MAX_ARTISTS: ${{ vars.MAX_ARTISTS || '3' }}
+          TREND_CACHE_HOURS: ${{ vars.TREND_CACHE_HOURS || '24' }}
         # Typer/Click boolean options are --publish / --no-publish (no "=value" form),
         # so branch on the input instead of interpolating it into a single flag.
         run: |

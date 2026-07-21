@@ -166,8 +166,13 @@ def run_pipeline(
 
     claude = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    log.info("Researching current music trends...")
-    trend_brief = trend_research.run(claude, settings.claude_model)
+    trend_brief = db.get_cached_trend_brief(settings.db_path, settings.trend_cache_hours)
+    if trend_brief:
+        log.info("Using cached trend research (< %sh old)", settings.trend_cache_hours)
+    else:
+        log.info("Researching current music trends...")
+        trend_brief = trend_research.run(claude, settings.claude_model)
+        db.save_trend_brief(settings.db_path, trend_brief)
 
     if resolved_artist:
         artist = resolved_artist
