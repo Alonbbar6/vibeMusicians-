@@ -32,11 +32,19 @@ class SunoTrack:
 
 
 class SunoClient:
-    def __init__(self, base_url: str, api_key: str, model: str = "V4_5", timeout: float = 30.0):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str = "V4_5",
+        callback_url: str = "https://example.com/vibemusicians-callback",
+        timeout: float = 30.0,
+    ):
         if not api_key:
             raise SunoError("SUNO_API_KEY is not set — see .env.example")
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.callback_url = callback_url
         self._client = httpx.Client(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {api_key}"},
@@ -58,6 +66,9 @@ class SunoClient:
             "title": title,
             "style": style,
             "model": self.model,
+            # Required by kie.ai, but unused: this client polls record-info
+            # instead of receiving callbacks, so it doesn't need to resolve.
+            "callBackUrl": self.callback_url,
         }
         if not instrumental:
             payload["prompt"] = lyrics or ""
@@ -101,8 +112,14 @@ class SunoClient:
                 if tracks:
                     return tracks
                 # SUCCESS with no audio yet on some providers' "first" callback stage — keep polling.
-            elif status in {"FAILED", "ERROR", "CREATE_TASK_FAILED", "GENERATE_AUDIO_FAILED"}:
-                raise SunoError(f"Suno generation failed: {body}")
+            elif "ERROR" in status or "FAILED" in status:
+                # Substring match rather than an exact set: providers have several
+                # differently-named terminal failure statuses (CREATE_TASK_FAILED,
+                # GENERATE_AUDIO_FAILED, SENSITIVE_WORD_ERROR, ...) and missing one
+                # here means silently polling until timeout instead of surfacing
+                # the real error (e.g. a content-policy rejection).
+                error_message = _dig(body, "data", "errorMessage") or body
+                raise SunoError(f"Suno generation failed ({status}): {error_message}")
 
             time.sleep(poll_seconds)
 

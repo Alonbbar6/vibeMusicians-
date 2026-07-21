@@ -13,7 +13,9 @@ from vibemusicians.providers import soundcloud as sc
 
 app = typer.Typer(help="Autonomous music-agent pipeline: research -> persona -> song -> Suno -> SoundCloud")
 soundcloud_app = typer.Typer(help="SoundCloud account connection")
+artist_app = typer.Typer(help="Manage the label's artist roster")
 app.add_typer(soundcloud_app, name="soundcloud")
+app.add_typer(artist_app, name="artist")
 
 
 @app.callback()
@@ -26,12 +28,29 @@ def main(verbose: bool = typer.Option(False, "--verbose", "-v")):
 def run(
     publish: bool = typer.Option(True, help="Upload the finished track to SoundCloud"),
     private: bool = typer.Option(True, help="Upload as private (recommended until you've reviewed the output)"),
+    artist: str = typer.Option(None, help="Name of an existing roster artist to write for"),
+    new_artist: bool = typer.Option(False, "--new-artist", help="Invent and add a new artist to the roster"),
+    direction: str = typer.Option(None, help="Creative direction hint, only used with --new-artist"),
 ):
     """Run the full pipeline once: research trends, write a song, generate audio, publish."""
-    from vibemusicians.orchestrator import run_pipeline
+    from vibemusicians.orchestrator import AmbiguousArtist, ArtistNotFound, UploadLimitReached, run_pipeline
 
     settings = get_settings()
-    result = run_pipeline(settings, publish=publish, private=private)
+    try:
+        result = run_pipeline(
+            settings,
+            publish=publish,
+            private=private,
+            artist_name=artist,
+            new_artist=new_artist,
+            direction=direction,
+        )
+    except UploadLimitReached as e:
+        typer.echo(str(e))
+        raise typer.Exit(0)
+    except (ArtistNotFound, AmbiguousArtist) as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
     typer.echo(f"\nDone: track #{result.track_id} — {result.title!r}")
     typer.echo(f"Audio: {result.audio_path}")
     if result.soundcloud_url:
@@ -39,28 +58,91 @@ def run(
 
 
 @app.command()
-def persona():
-    """Show the current virtual artist persona (created on first `run`)."""
-    from vibemusicians import db
-
-    settings = get_settings()
-    existing = db.load_persona(settings.db_path)
-    if not existing:
-        typer.echo("No persona yet — run `vibemusicians run` first.")
-        raise typer.Exit(1)
-    for key, value in existing.items():
-        typer.echo(f"{key}: {value}")
-
-
-@app.command()
-def tracks(limit: int = 20):
+def tracks(artist: str = typer.Option(None, help="Only show tracks for this artist"), limit: int = 20):
     """List generated tracks."""
     from vibemusicians import db
 
     settings = get_settings()
-    for track in db.list_tracks(settings.db_path, limit=limit):
+    artist_id = None
+    if artist:
+        match = db.get_artist_by_name(settings.db_path, artist)
+        if not match:
+            typer.echo(f"No artist named {artist!r}.")
+            raise typer.Exit(1)
+        artist_id = match["id"]
+
+    for track in db.list_tracks(settings.db_path, artist_id=artist_id, limit=limit):
         url = track.get("soundcloud_url") or "(not published)"
-        typer.echo(f"#{track['id']:>4}  [{track['status']:<10}]  {track['title']:<40}  {url}")
+        artist_label = track.get("artist_name") or "?"
+        typer.echo(f"#{track['id']:>4}  [{track['status']:<10}]  {artist_label:<20}  {track['title']:<40}  {url}")
+
+
+@artist_app.command("create")
+def artist_create(direction: str = typer.Option(None, help="Creative direction hint, e.g. 'dark synthwave, male vocals'")):
+    """Invent a new artist and add them to the label's roster."""
+    import anthropic
+
+    from vibemusicians import db
+    from vibemusicians.agents import persona, trend_research
+
+    settings = get_settings()
+    claude = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+    typer.echo("Researching current music trends...")
+    trend_brief = trend_research.run(claude, settings.claude_model)
+
+    existing = db.list_artists(settings.db_path)
+    typer.echo("Inventing artist...")
+    invented = persona.invent(
+        claude, settings.claude_model, trend_brief, direction=direction, existing_artists=existing
+    )
+    artist_id = db.create_artist(settings.db_path, invented)
+
+    typer.echo(f"\nCreated artist #{artist_id}: {invented['name']} ({invented['genre']})")
+    typer.echo(f"Tagline: {invented['tagline']}")
+    typer.echo(f"Vocal style: {invented['vocal_style']}")
+
+
+@artist_app.command("list")
+def artist_list():
+    """List every artist on the roster."""
+    from vibemusicians import db
+
+    settings = get_settings()
+    artists = db.list_artists(settings.db_path)
+    if not artists:
+        typer.echo("No artists yet — run `vibemusicians artist create` or `vibemusicians run`.")
+        raise typer.Exit(0)
+    for a in artists:
+        track_count = len(db.list_tracks(settings.db_path, artist_id=a["id"], limit=1000))
+        typer.echo(f"#{a['id']} {a['name']} ({a['genre']}) — {track_count} track(s)")
+        typer.echo(f"    Vocal style: {a['vocal_style']}")
+
+
+@artist_app.command("show")
+def artist_show(name: str):
+    """Show full bio for one artist."""
+    from vibemusicians import db
+
+    settings = get_settings()
+    a = db.get_artist_by_name(settings.db_path, name)
+    if not a:
+        typer.echo(f"No artist named {name!r}.")
+        raise typer.Exit(1)
+    for key, value in a.items():
+        typer.echo(f"{key}: {value}")
+
+
+@app.command()
+def dashboard(
+    port: int = typer.Option(8913, help="Port to serve the dashboard on"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't auto-open a browser tab"),
+):
+    """Launch a local web dashboard: artist bio, connected accounts, songs, pipeline status."""
+    from vibemusicians.dashboard import run_dashboard
+
+    settings = get_settings()
+    run_dashboard(settings, port=port, open_browser=not no_browser)
 
 
 @soundcloud_app.command("login")

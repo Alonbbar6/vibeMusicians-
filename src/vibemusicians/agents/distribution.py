@@ -21,13 +21,13 @@ def publish(
 ) -> dict[str, Any]:
     description = (
         f"{song.get('creative_rationale', '')}\n\n"
-        f"— {persona['name']} ({persona['genre']})"
+        f"feat. {persona['name']} ({persona['genre']})"
     ).strip()
     tag_list = " ".join(f'"{tag.strip()}"' for tag in song["style_prompt"].split(",") if tag.strip())
 
     return soundcloud.upload_track(
         audio_path=audio_path,
-        title=f"{song['title']} - {persona['name']}",
+        title=f"{song['title']} (feat. {persona['name']})",
         description=description,
         tag_list=tag_list,
         genre=persona.get("genre", ""),

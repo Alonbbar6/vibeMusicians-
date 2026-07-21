@@ -27,7 +27,11 @@ SONG_SCHEMA = {
             "type": "string",
             "description": (
                 "Comma-separated style/production tags for the music generator, "
-                "e.g. 'dark pop, moody synths, 90 bpm, female vocals, atmospheric'"
+                "e.g. 'dark pop, moody synths, 90 bpm, female vocals, atmospheric'. "
+                "Never name a real artist, song, or band here (e.g. 'sounds like "
+                "X') — describe the sonic qualities themselves (genre, era, "
+                "instrumentation, vocal timbre, mixing style) instead. Generators "
+                "reject prompts that reference specific real artists by name."
             ),
         },
         "negative_tags": {
@@ -52,7 +56,15 @@ and voice. Lyrics must be wholly original — do not reuse lines, melodies, or \
 distinctive phrases from any existing song. The style_prompt is passed \
 directly to an AI music generator, so make it dense with concrete, generative \
 descriptors (genre, mood, instrumentation, tempo/BPM, vocal type, era/reference \
-sound) rather than vague praise words.
+sound) rather than vague praise words. Carry the artist's vocal_style \
+descriptors into the style_prompt close to verbatim (not paraphrased or \
+reinterpreted) — that consistency is what makes this artist's voice \
+recognizable across every song in their catalog rather than sounding like a \
+different singer each time. Never name a real artist, song, or band in the \
+style_prompt or negative_tags (the persona's "influences" are for your own \
+creative grounding only) — the music generator rejects prompts that \
+reference specific real artists by name, so translate any influence into \
+the underlying sonic qualities instead.
 """
 
 

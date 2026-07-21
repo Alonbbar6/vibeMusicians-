@@ -85,22 +85,41 @@ later without touching the rest of the pipeline.)
 
 ## Usage
 
+The label can run more than one virtual artist — each gets their own
+consistent vocal style, song catalog, and weekly upload cap.
+
 ```bash
-# Run the full pipeline once (research -> persona -> song -> audio -> publish)
+# Add a new artist to the roster (invents persona only, no song yet)
+vibemusicians artist create
+vibemusicians artist create --direction "dark synthwave, male vocals"
+
+# List the roster / show one artist's full bio
+vibemusicians artist list
+vibemusicians artist show "Junebug Vale"
+
+# Run the full pipeline once (research -> song -> audio -> publish).
+# With one artist on the roster this just uses them; with none, it invents
+# the first one; with several, pass --artist to pick which one writes next.
 vibemusicians run
+vibemusicians run --artist "Junebug Vale"
+vibemusicians run --new-artist --direction "lo-fi bedroom pop"
 
 # Dry run: generate the track but don't upload it
 vibemusicians run --no-publish
 
-# See the current artist persona
-vibemusicians persona
-
-# List generated tracks and their status
+# List generated tracks (optionally scoped to one artist)
 vibemusicians tracks
+vibemusicians tracks --artist "Junebug Vale"
+
+# Local web dashboard: roster, bios, songs, pipeline + upload-cap status
+vibemusicians dashboard
 ```
 
 Uploads default to **private** on SoundCloud (`--private/--no-private`) so
-you can review a track before making it public.
+you can review a track before making it public. Each artist can publish at
+most `WEEKLY_UPLOAD_LIMIT` (default 3, set in `.env`) tracks per rolling
+7-day window — `run` skips the publish step (and the paid API calls before
+it) once an artist hits their cap for the week.
 
 ## Automating releases
 

@@ -2,8 +2,11 @@ name: Release a new track
 
 on:
   schedule:
-    # Every Monday at 15:00 UTC. Adjust to taste.
-    - cron: "0 15 * * 1"
+    # Every day at 15:00 UTC. Adjust to taste. Each artist still caps at
+    # WEEKLY_UPLOAD_LIMIT publishes per rolling 7-day window regardless of
+    # how often this fires, so daily just means "check in daily," not
+    # "publish daily."
+    - cron: "0 15 * * *"
   workflow_dispatch:
     inputs:
       publish:
@@ -31,9 +34,11 @@ jobs:
           SUNO_API_BASE_URL: ${{ vars.SUNO_API_BASE_URL || 'https://api.kie.ai' }}
           SUNO_API_KEY: ${{ secrets.SUNO_API_KEY }}
           SUNO_MODEL: ${{ vars.SUNO_MODEL || 'V4_5' }}
+          SUNO_CALLBACK_URL: ${{ vars.SUNO_CALLBACK_URL || 'https://example.com/vibemusicians-callback' }}
           SOUNDCLOUD_CLIENT_ID: ${{ secrets.SOUNDCLOUD_CLIENT_ID }}
           SOUNDCLOUD_CLIENT_SECRET: ${{ secrets.SOUNDCLOUD_CLIENT_SECRET }}
           SOUNDCLOUD_REFRESH_TOKEN: ${{ secrets.SOUNDCLOUD_REFRESH_TOKEN }}
+          WEEKLY_UPLOAD_LIMIT: ${{ vars.WEEKLY_UPLOAD_LIMIT || '7' }}
         # Typer/Click boolean options are --publish / --no-publish (no "=value" form),
         # so branch on the input instead of interpolating it into a single flag.
         run: |
