@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 from vibemusicians import db
 from vibemusicians.config import Settings
@@ -82,6 +83,7 @@ PAGE = """\
   .artist-block h2 { font-size: 1.15rem; margin: 0 0 .1rem; }
   .artist-block .tagline { color: #888; margin-bottom: .75rem; }
   .usage { float: right; font-size: .85rem; color: #888; }
+  .cover { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; display: block; }
 </style>
 </head>
 <body>
@@ -107,13 +109,14 @@ function tracksTable(tracks) {
   if (!tracks.length) return '<p class="empty">No songs yet.</p>';
   const rows = tracks.map(t => `
     <tr>
+      <td>${t.cover_art_path ? `<img class="cover" src="/art/${t.id}" alt="">` : ''}</td>
       <td>#${t.id}</td>
       <td>${t.title}</td>
       <td><span class="status status-${t.status}">${t.status}</span></td>
       <td>${t.created_at}</td>
       <td>${t.soundcloud_url ? `<a href="${t.soundcloud_url}" target="_blank">listen</a>` : '—'}</td>
     </tr>`).join('');
-  return `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Created</th><th>Link</th></tr></thead>
+  return `<table><thead><tr><th></th><th>#</th><th>Title</th><th>Status</th><th>Created</th><th>Link</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -181,9 +184,27 @@ def run_dashboard(settings: Settings, host: str = "127.0.0.1", port: int = 8913,
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif self.path.startswith("/art/"):
+                self._serve_art(self.path.removeprefix("/art/"))
             else:
                 self.send_response(404)
                 self.end_headers()
+
+        def _serve_art(self, track_id_str: str):
+            # track_id is looked up in the DB (not used as a raw filename), so
+            # there's no path-traversal surface here even without sanitizing it.
+            track = db.get_track(settings.db_path, int(track_id_str)) if track_id_str.isdigit() else None
+            path = Path(track["cover_art_path"]) if track and track.get("cover_art_path") else None
+            if not path or not path.exists():
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, *args):  # silence default request logging
             pass

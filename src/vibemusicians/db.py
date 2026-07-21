@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     trend_brief TEXT,
     suno_task_id TEXT,
     audio_path TEXT,
+    cover_art_path TEXT,
     soundcloud_track_id TEXT,
     soundcloud_url TEXT,
     status TEXT NOT NULL DEFAULT 'created',
@@ -53,6 +54,8 @@ def _migrate_legacy_persona(conn: sqlite3.Connection) -> None:
     """
     if not _column_exists(conn, "tracks", "artist_id"):
         conn.execute("ALTER TABLE tracks ADD COLUMN artist_id INTEGER REFERENCES artists(id)")
+    if not _column_exists(conn, "tracks", "cover_art_path"):
+        conn.execute("ALTER TABLE tracks ADD COLUMN cover_art_path TEXT")
 
     has_legacy_table = conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'persona'"
@@ -135,6 +138,7 @@ class Track:
     trend_brief: str | None = None
     suno_task_id: str | None = None
     audio_path: str | None = None
+    cover_art_path: str | None = None
     soundcloud_track_id: str | None = None
     soundcloud_url: str | None = None
     status: str = "created"

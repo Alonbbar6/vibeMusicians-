@@ -117,22 +117,31 @@ class SoundCloudClient:
         tag_list: str = "",
         genre: str = "",
         private: bool = True,
+        artwork_path: str | None = None,
     ) -> dict[str, Any]:
         access_token = self._refresh()
         with open(audio_path, "rb") as audio_file:
-            resp = httpx.post(
-                f"{API_BASE}/tracks",
-                headers={"Authorization": f"Bearer {access_token}"},
-                data={
-                    "track[title]": title,
-                    "track[description]": description,
-                    "track[tag_list]": tag_list,
-                    "track[genre]": genre,
-                    "track[sharing]": "private" if private else "public",
-                },
-                files={"track[asset_data]": (Path(audio_path).name, audio_file, "audio/mpeg")},
-                timeout=300.0,
-            )
+            files = {"track[asset_data]": (Path(audio_path).name, audio_file, "audio/mpeg")}
+            artwork_file = open(artwork_path, "rb") if artwork_path else None
+            try:
+                if artwork_file:
+                    files["track[artwork_data]"] = (Path(artwork_path).name, artwork_file, "image/png")
+                resp = httpx.post(
+                    f"{API_BASE}/tracks",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    data={
+                        "track[title]": title,
+                        "track[description]": description,
+                        "track[tag_list]": tag_list,
+                        "track[genre]": genre,
+                        "track[sharing]": "private" if private else "public",
+                    },
+                    files=files,
+                    timeout=300.0,
+                )
+            finally:
+                if artwork_file:
+                    artwork_file.close()
         if resp.status_code >= 400:
             raise SoundCloudError(f"SoundCloud upload failed ({resp.status_code}): {resp.text}")
         return resp.json()

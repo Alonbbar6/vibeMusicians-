@@ -10,8 +10,9 @@ from dataclasses import dataclass
 import anthropic
 
 from vibemusicians import db
-from vibemusicians.agents import distribution, music_generation, persona, songwriter, trend_research
+from vibemusicians.agents import cover_art, distribution, music_generation, persona, songwriter, trend_research
 from vibemusicians.config import Settings
+from vibemusicians.providers.image import ImageClient
 from vibemusicians.providers.soundcloud import SoundCloudClient
 from vibemusicians.providers.suno import SunoClient
 
@@ -23,6 +24,7 @@ class RunResult:
     track_id: int
     title: str
     audio_path: str
+    cover_art_path: str
     soundcloud_url: str | None
 
 
@@ -124,6 +126,14 @@ def run_pipeline(
     db.update_track(settings.db_path, track_id, suno_task_id=task_id, audio_path=audio_path, status="generated")
     log.info("Audio saved to %s", audio_path)
 
+    log.info("Generating cover art...")
+    image_client = ImageClient(
+        settings.suno_api_base_url, settings.suno_api_key or "", callback_url=settings.suno_callback_url
+    )
+    cover_art_path = cover_art.generate(image_client, artist, song, settings.tracks_dir, track_id)
+    db.update_track(settings.db_path, track_id, cover_art_path=cover_art_path)
+    log.info("Cover art saved to %s", cover_art_path)
+
     soundcloud_url = None
     if publish:
         log.info("Publishing to SoundCloud...")
@@ -132,7 +142,9 @@ def run_pipeline(
             client_secret=settings.soundcloud_client_secret or "",
             refresh_token=settings.soundcloud_refresh_token or "",
         )
-        result = distribution.publish(soundcloud, audio_path, song, artist, private=private)
+        result = distribution.publish(
+            soundcloud, audio_path, song, artist, private=private, artwork_path=cover_art_path
+        )
         soundcloud_url = result.get("permalink_url")
         db.update_track(
             settings.db_path,
@@ -143,4 +155,10 @@ def run_pipeline(
         )
         log.info("Published: %s", soundcloud_url)
 
-    return RunResult(track_id=track_id, title=song["title"], audio_path=audio_path, soundcloud_url=soundcloud_url)
+    return RunResult(
+        track_id=track_id,
+        title=song["title"],
+        audio_path=audio_path,
+        cover_art_path=cover_art_path,
+        soundcloud_url=soundcloud_url,
+    )

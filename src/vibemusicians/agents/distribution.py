@@ -18,6 +18,7 @@ def publish(
     song: dict[str, Any],
     persona: dict[str, Any],
     private: bool = True,
+    artwork_path: str | None = None,
 ) -> dict[str, Any]:
     description = (
         f"{song.get('creative_rationale', '')}\n\n"
@@ -32,4 +33,5 @@ def publish(
         tag_list=tag_list,
         genre=persona.get("genre", ""),
         private=private,
+        artwork_path=artwork_path,
     )

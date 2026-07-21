@@ -53,6 +53,7 @@ def run(
         raise typer.Exit(1)
     typer.echo(f"\nDone: track #{result.track_id} — {result.title!r}")
     typer.echo(f"Audio: {result.audio_path}")
+    typer.echo(f"Cover art: {result.cover_art_path}")
     if result.soundcloud_url:
         typer.echo(f"SoundCloud: {result.soundcloud_url}")
 
