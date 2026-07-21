@@ -38,14 +38,19 @@ jobs:
           SOUNDCLOUD_CLIENT_ID: ${{ secrets.SOUNDCLOUD_CLIENT_ID }}
           SOUNDCLOUD_CLIENT_SECRET: ${{ secrets.SOUNDCLOUD_CLIENT_SECRET }}
           SOUNDCLOUD_REFRESH_TOKEN: ${{ secrets.SOUNDCLOUD_REFRESH_TOKEN }}
-          WEEKLY_UPLOAD_LIMIT: ${{ vars.WEEKLY_UPLOAD_LIMIT || '7' }}
+          WEEKLY_UPLOAD_LIMIT: ${{ vars.WEEKLY_UPLOAD_LIMIT || '15' }}
+          MAX_ARTISTS: ${{ vars.MAX_ARTISTS || '3' }}
         # Typer/Click boolean options are --publish / --no-publish (no "=value" form),
         # so branch on the input instead of interpolating it into a single flag.
         run: |
+          # Fresh CI checkouts start with an empty roster (data/ isn't
+          # committed until the first successful run) — bootstrap one artist
+          # so --count has something to round-robin across.
+          vibemusicians artist ensure
           if [ "${{ github.event.inputs.publish }}" = "false" ]; then
-            vibemusicians --verbose run --no-publish
+            vibemusicians --verbose run --count 6 --no-publish
           else
-            vibemusicians --verbose run --publish
+            vibemusicians --verbose run --count 6 --publish
           fi
 
       # The persona/track database is regenerated fresh in CI unless you persist

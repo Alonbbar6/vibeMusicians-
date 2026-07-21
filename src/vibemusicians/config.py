@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # window, per artist. Adjust via WEEKLY_UPLOAD_LIMIT in .env.
     weekly_upload_limit: int = 3
 
+    # Roster cap: max number of artists the label can have at once. Adjust via
+    # MAX_ARTISTS in .env.
+    max_artists: int = 3
+
     # Local storage
     data_dir: Path = Path("data")
 

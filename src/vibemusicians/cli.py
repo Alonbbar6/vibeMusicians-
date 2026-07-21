@@ -31,31 +31,63 @@ def run(
     artist: str = typer.Option(None, help="Name of an existing roster artist to write for"),
     new_artist: bool = typer.Option(False, "--new-artist", help="Invent and add a new artist to the roster"),
     direction: str = typer.Option(None, help="Creative direction hint, only used with --new-artist"),
+    count: int = typer.Option(
+        1, help="How many songs to generate this invocation. >1 round-robins across the roster unless --artist is set"
+    ),
 ):
-    """Run the full pipeline once: research trends, write a song, generate audio, publish."""
-    from vibemusicians.orchestrator import AmbiguousArtist, ArtistNotFound, UploadLimitReached, run_pipeline
+    """Run the full pipeline once (or --count times): research trends, write a song, generate audio, publish."""
+    from vibemusicians import db
+    from vibemusicians.orchestrator import (
+        AmbiguousArtist,
+        ArtistNotFound,
+        RosterFull,
+        UploadLimitReached,
+        run_pipeline,
+    )
 
     settings = get_settings()
-    try:
-        result = run_pipeline(
-            settings,
-            publish=publish,
-            private=private,
-            artist_name=artist,
-            new_artist=new_artist,
-            direction=direction,
-        )
-    except UploadLimitReached as e:
-        typer.echo(str(e))
-        raise typer.Exit(0)
-    except (ArtistNotFound, AmbiguousArtist) as e:
-        typer.echo(str(e))
+
+    if count == 1:
+        try:
+            result = run_pipeline(
+                settings,
+                publish=publish,
+                private=private,
+                artist_name=artist,
+                new_artist=new_artist,
+                direction=direction,
+            )
+        except UploadLimitReached as e:
+            typer.echo(str(e))
+            raise typer.Exit(0)
+        except (ArtistNotFound, AmbiguousArtist, RosterFull) as e:
+            typer.echo(str(e))
+            raise typer.Exit(1)
+        typer.echo(f"\nDone: track #{result.track_id} — {result.title!r}")
+        typer.echo(f"Audio: {result.audio_path}")
+        typer.echo(f"Cover art: {result.cover_art_path}")
+        if result.soundcloud_url:
+            typer.echo(f"SoundCloud: {result.soundcloud_url}")
+        return
+
+    if new_artist:
+        typer.echo("--new-artist can't be combined with --count > 1. Add the artist first, then rerun with --count.")
         raise typer.Exit(1)
-    typer.echo(f"\nDone: track #{result.track_id} — {result.title!r}")
-    typer.echo(f"Audio: {result.audio_path}")
-    typer.echo(f"Cover art: {result.cover_art_path}")
-    if result.soundcloud_url:
-        typer.echo(f"SoundCloud: {result.soundcloud_url}")
+    roster = db.list_artists(settings.db_path)
+    if not artist and not roster:
+        typer.echo("No artists yet — run `vibemusicians artist create` first.")
+        raise typer.Exit(1)
+
+    for i in range(count):
+        pick = artist or roster[i % len(roster)]["name"]
+        try:
+            result = run_pipeline(settings, publish=publish, private=private, artist_name=pick)
+            link = f" -> {result.soundcloud_url}" if result.soundcloud_url else ""
+            typer.echo(f"[{i + 1}/{count}] {pick}: #{result.track_id} {result.title!r}{link}")
+        except UploadLimitReached as e:
+            typer.echo(f"[{i + 1}/{count}] {pick}: skipped — {e}")
+        except (ArtistNotFound, AmbiguousArtist, RosterFull) as e:
+            typer.echo(f"[{i + 1}/{count}] {pick}: error — {e}")
 
 
 @app.command()
@@ -87,12 +119,19 @@ def artist_create(direction: str = typer.Option(None, help="Creative direction h
     from vibemusicians.agents import persona, trend_research
 
     settings = get_settings()
+    existing = db.list_artists(settings.db_path)
+    if len(existing) >= settings.max_artists:
+        typer.echo(
+            f"Roster is full ({len(existing)}/{settings.max_artists} artists). "
+            "Adjust MAX_ARTISTS in .env to allow more."
+        )
+        raise typer.Exit(1)
+
     claude = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
     typer.echo("Researching current music trends...")
     trend_brief = trend_research.run(claude, settings.claude_model)
 
-    existing = db.list_artists(settings.db_path)
     typer.echo("Inventing artist...")
     invented = persona.invent(
         claude, settings.claude_model, trend_brief, direction=direction, existing_artists=existing
@@ -102,6 +141,22 @@ def artist_create(direction: str = typer.Option(None, help="Creative direction h
     typer.echo(f"\nCreated artist #{artist_id}: {invented['name']} ({invented['genre']})")
     typer.echo(f"Tagline: {invented['tagline']}")
     typer.echo(f"Vocal style: {invented['vocal_style']}")
+
+
+@artist_app.command("ensure")
+def artist_ensure(direction: str = typer.Option(None, help="Creative direction hint if an artist needs to be created")):
+    """Create the first artist only if the roster is currently empty; no-op otherwise.
+
+    Useful as a bootstrap step before `run --count N` in CI, where a fresh
+    checkout has no roster yet.
+    """
+    from vibemusicians import db
+
+    settings = get_settings()
+    if db.list_artists(settings.db_path):
+        typer.echo("Roster already has artist(s) — nothing to do.")
+        return
+    artist_create(direction=direction)
 
 
 @artist_app.command("list")

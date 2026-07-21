@@ -40,6 +40,10 @@ class AmbiguousArtist(RuntimeError):
     pass
 
 
+class RosterFull(RuntimeError):
+    """Raised when adding a new artist would exceed MAX_ARTISTS."""
+
+
 def run_pipeline(
     settings: Settings,
     publish: bool = True,
@@ -68,6 +72,12 @@ def run_pipeline(
                 "or --new-artist to add another."
             )
         # len(roster) == 0: fall through and invent the first one below.
+
+    if resolved_artist is None and len(roster) >= settings.max_artists:
+        raise RosterFull(
+            f"Roster is full ({len(roster)}/{settings.max_artists} artists). Adjust MAX_ARTISTS "
+            "in .env to allow more, or pick an existing artist with --artist."
+        )
 
     if publish and resolved_artist:
         recent = db.count_recent_publishes(settings.db_path, resolved_artist["id"], days=7)
