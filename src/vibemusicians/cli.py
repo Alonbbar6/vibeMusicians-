@@ -27,7 +27,7 @@ def main(verbose: bool = typer.Option(False, "--verbose", "-v")):
 @app.command()
 def run(
     publish: bool = typer.Option(True, help="Upload the finished track to SoundCloud"),
-    private: bool = typer.Option(True, help="Upload as private (recommended until you've reviewed the output)"),
+    private: bool = typer.Option(False, help="Upload as private instead of public"),
     artist: str = typer.Option(None, help="Name of an existing roster artist to write for"),
     new_artist: bool = typer.Option(False, "--new-artist", help="Invent and add a new artist to the roster"),
     direction: str = typer.Option(None, help="Creative direction hint, only used with --new-artist"),
@@ -108,6 +108,20 @@ def tracks(artist: str = typer.Option(None, help="Only show tracks for this arti
         url = track.get("soundcloud_url") or "(not published)"
         artist_label = track.get("artist_name") or "?"
         typer.echo(f"#{track['id']:>4}  [{track['status']:<10}]  {artist_label:<20}  {track['title']:<40}  {url}")
+
+
+@app.command()
+def make_public(track_id: int):
+    """Flip an already-published track from private to public on SoundCloud."""
+    from vibemusicians.orchestrator import TrackNotReady, set_track_sharing
+
+    settings = get_settings()
+    try:
+        set_track_sharing(settings, track_id, private=False)
+    except TrackNotReady as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+    typer.echo(f"Track #{track_id} is now public.")
 
 
 @artist_app.command("create")

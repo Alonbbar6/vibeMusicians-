@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vibemusicians import db
 from vibemusicians.config import Settings
-from vibemusicians.orchestrator import TrackNotReady, publish_track
+from vibemusicians.orchestrator import TrackNotReady, publish_track, set_track_sharing
 
 STATUSES = ["created", "generating", "generated", "published"]
 
@@ -109,19 +109,28 @@ function statCard(label, value) {
   return `<div class="card"><h2>${label}</h2><div class="stat">${value}</div></div>`;
 }
 
-async function publishTrack(id, button) {
+async function postAction(url, button, busyText) {
+  const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = 'Publishing...';
+  button.textContent = busyText;
   try {
-    const res = await fetch(`/publish/${id}`, { method: 'POST' });
+    const res = await fetch(url, { method: 'POST' });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Publish failed');
+    if (!res.ok) throw new Error(data.error || 'Request failed');
     await refresh();
   } catch (err) {
-    alert(`Track #${id}: ${err.message}`);
+    alert(err.message);
     button.disabled = false;
-    button.textContent = 'Publish';
+    button.textContent = originalText;
   }
+}
+
+function publishTrack(id, button) {
+  postAction(`/publish/${id}`, button, 'Publishing...');
+}
+
+function makePublic(id, button) {
+  postAction(`/make-public/${id}`, button, 'Updating...');
 }
 
 function tracksTable(tracks) {
@@ -134,7 +143,10 @@ function tracksTable(tracks) {
       <td><span class="status status-${t.status}">${t.status}</span></td>
       <td>${t.created_at}</td>
       <td>${t.soundcloud_url ? `<a href="${t.soundcloud_url}" target="_blank">listen</a>` : '—'}</td>
-      <td>${t.status === 'generated' ? `<button onclick="publishTrack(${t.id}, this)">Publish</button>` : ''}</td>
+      <td>
+        ${t.status === 'generated' ? `<button onclick="publishTrack(${t.id}, this)">Publish</button>` : ''}
+        ${t.status === 'published' ? `<button onclick="makePublic(${t.id}, this)">Make public</button>` : ''}
+      </td>
     </tr>`).join('');
   return `<table><thead><tr><th></th><th>#</th><th>Title</th><th>Status</th><th>Created</th><th>Link</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
@@ -213,6 +225,8 @@ def run_dashboard(settings: Settings, host: str = "127.0.0.1", port: int = 8913,
         def do_POST(self):  # noqa: N802
             if self.path.startswith("/publish/"):
                 self._publish(self.path.removeprefix("/publish/"))
+            elif self.path.startswith("/make-public/"):
+                self._make_public(self.path.removeprefix("/make-public/"))
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -222,11 +236,23 @@ def run_dashboard(settings: Settings, host: str = "127.0.0.1", port: int = 8913,
                 self._json_response(400, {"error": "Invalid track id"})
                 return
             try:
-                soundcloud_url = publish_track(settings, int(track_id_str), private=True)
+                soundcloud_url = publish_track(settings, int(track_id_str), private=False)
                 self._json_response(200, {"soundcloud_url": soundcloud_url})
             except TrackNotReady as e:
                 self._json_response(400, {"error": str(e)})
             except Exception as e:  # noqa: BLE001 — surface any provider error to the dashboard, not a 500 traceback
+                self._json_response(502, {"error": str(e)})
+
+        def _make_public(self, track_id_str: str):
+            if not track_id_str.isdigit():
+                self._json_response(400, {"error": "Invalid track id"})
+                return
+            try:
+                set_track_sharing(settings, int(track_id_str), private=False)
+                self._json_response(200, {"ok": True})
+            except TrackNotReady as e:
+                self._json_response(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001
                 self._json_response(502, {"error": str(e)})
 
         def _json_response(self, status: int, payload: dict):

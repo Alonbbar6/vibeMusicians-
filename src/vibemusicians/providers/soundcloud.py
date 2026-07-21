@@ -122,6 +122,18 @@ class SoundCloudClient:
                 self.on_token_rotated(new_refresh_token)
         return self._access_token
 
+    def set_sharing(self, track_id: str, private: bool) -> dict[str, Any]:
+        access_token = self._refresh()
+        resp = httpx.put(
+            f"{API_BASE}/tracks/{track_id}",
+            headers={"Authorization": f"Bearer {access_token}"},
+            data={"track[sharing]": "private" if private else "public"},
+            timeout=30.0,
+        )
+        if resp.status_code >= 400:
+            raise SoundCloudError(f"SoundCloud update failed ({resp.status_code}): {resp.text}")
+        return resp.json()
+
     def upload_track(
         self,
         audio_path: str,
