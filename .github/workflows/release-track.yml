@@ -2,11 +2,11 @@ name: Release a new track
 
 on:
   schedule:
-    # Every day at 15:00 UTC. Adjust to taste. Each artist still caps at
-    # WEEKLY_UPLOAD_LIMIT publishes per rolling 7-day window regardless of
-    # how often this fires, so daily just means "check in daily," not
-    # "publish daily."
-    - cron: "0 15 * * *"
+    # Every 4 hours (6x/day), one song each — spread across the day instead
+    # of one big batch, so a single failed run only costs 1 song instead of
+    # the whole day's. Each artist still caps at WEEKLY_UPLOAD_LIMIT publishes
+    # per rolling 7-day window regardless of how often this fires.
+    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       publish:
@@ -50,26 +50,29 @@ jobs:
         run: |
           # Fresh CI checkouts start with an empty roster (data/ isn't
           # committed until the first successful run) — bootstrap one artist
-          # so --count has something to round-robin across.
+          # so there's something to write a song for.
           vibemusicians artist ensure
           if [ "${{ github.event.inputs.publish }}" = "false" ]; then
-            vibemusicians --verbose run --count 6 --no-publish
+            vibemusicians --verbose run --no-publish
           else
-            vibemusicians --verbose run --count 6 --publish
+            vibemusicians --verbose run --publish
           fi
 
-      # The persona/track database is regenerated fresh in CI unless you persist
-      # it — commit `data/vibemusicians.db` back, or move it to an external
-      # store, so the artist persona stays consistent across scheduled runs.
-      - name: Persist persona/track database
+      # data/ is regenerated fresh in every CI job unless persisted — commit
+      # the track database and the SoundCloud refresh token (which SoundCloud
+      # rotates and invalidates on every use, so the next job needs this
+      # file's value, not the static SOUNDCLOUD_REFRESH_TOKEN secret, past the
+      # very first run) back so state survives across scheduled runs.
+      - name: Persist roster/track database and rotated SoundCloud token
         if: always()
         run: |
-          if [ -f data/vibemusicians.db ]; then
-            git config user.name "vibemusicians-bot"
-            git config user.email "actions@users.noreply.github.com"
-            git add -f data/vibemusicians.db
-            git diff --cached --quiet || git commit -m "chore: update track database [skip ci]"
+          git config user.name "vibemusicians-bot"
+          git config user.email "actions@users.noreply.github.com"
+          [ -f data/vibemusicians.db ] && git add -f data/vibemusicians.db
+          [ -f data/soundcloud_refresh_token ] && git add -f data/soundcloud_refresh_token
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update track database [skip ci]"
             git push
           else
-            echo "No database file to persist (pipeline didn't get far enough to create one)."
+            echo "Nothing new to persist."
           fi

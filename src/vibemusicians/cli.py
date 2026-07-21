@@ -3,11 +3,11 @@ import logging
 import secrets
 import threading
 import webbrowser
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import typer
 
+from vibemusicians import env_file
 from vibemusicians.config import get_settings
 from vibemusicians.providers import soundcloud as sc
 
@@ -256,19 +256,8 @@ def soundcloud_login():
         challenge.verifier,
     )
     refresh_token = tokens["refresh_token"]
-    _upsert_env_var("SOUNDCLOUD_REFRESH_TOKEN", refresh_token)
+    env_file.upsert("SOUNDCLOUD_REFRESH_TOKEN", refresh_token)
     typer.echo("Connected. SOUNDCLOUD_REFRESH_TOKEN saved to .env.")
-
-
-def _upsert_env_var(key: str, value: str, env_path: Path = Path(".env")) -> None:
-    lines = env_path.read_text().splitlines() if env_path.exists() else []
-    for i, line in enumerate(lines):
-        if line.startswith(f"{key}="):
-            lines[i] = f"{key}={value}"
-            break
-    else:
-        lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(lines) + "\n")
 
 
 if __name__ == "__main__":

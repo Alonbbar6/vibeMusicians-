@@ -12,6 +12,7 @@ candidates[0].content.parts[].inlineData.
 """
 
 import base64
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -38,7 +39,21 @@ class GeminiImageClient:
             timeout=timeout,
         )
 
-    def generate(self, prompt: str) -> GeneratedImage:
+    def generate(self, prompt: str, retries: int = 2, retry_delay: float = 3.0) -> GeneratedImage:
+        # Gemini occasionally returns finishReason "NO_IMAGE" with no error —
+        # a soft, non-deterministic refusal rather than a real failure (seen in
+        # practice: retrying the exact same prompt immediately succeeded).
+        last_error: GeminiImageError | None = None
+        for attempt in range(retries + 1):
+            try:
+                return self._generate_once(prompt)
+            except GeminiImageError as e:
+                last_error = e
+                if attempt < retries:
+                    time.sleep(retry_delay)
+        raise last_error
+
+    def _generate_once(self, prompt: str) -> GeneratedImage:
         resp = self._client.post(
             f"/v1beta/models/{self.model}:generateContent",
             json={

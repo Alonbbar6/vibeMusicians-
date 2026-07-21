@@ -12,6 +12,7 @@ from pathlib import Path
 
 from vibemusicians import db
 from vibemusicians.config import Settings
+from vibemusicians.orchestrator import TrackNotReady, publish_track
 
 STATUSES = ["created", "generating", "generated", "published"]
 
@@ -84,6 +85,9 @@ PAGE = """\
   .artist-block .tagline { color: #888; margin-bottom: .75rem; }
   .usage { float: right; font-size: .85rem; color: #888; }
   .cover { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; display: block; }
+  button { font: inherit; padding: .3rem .7rem; border-radius: 6px; border: 1px solid #8886; background: transparent; cursor: pointer; }
+  button:hover:not(:disabled) { background: #8882; }
+  button:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
@@ -105,6 +109,21 @@ function statCard(label, value) {
   return `<div class="card"><h2>${label}</h2><div class="stat">${value}</div></div>`;
 }
 
+async function publishTrack(id, button) {
+  button.disabled = true;
+  button.textContent = 'Publishing...';
+  try {
+    const res = await fetch(`/publish/${id}`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Publish failed');
+    await refresh();
+  } catch (err) {
+    alert(`Track #${id}: ${err.message}`);
+    button.disabled = false;
+    button.textContent = 'Publish';
+  }
+}
+
 function tracksTable(tracks) {
   if (!tracks.length) return '<p class="empty">No songs yet.</p>';
   const rows = tracks.map(t => `
@@ -115,8 +134,9 @@ function tracksTable(tracks) {
       <td><span class="status status-${t.status}">${t.status}</span></td>
       <td>${t.created_at}</td>
       <td>${t.soundcloud_url ? `<a href="${t.soundcloud_url}" target="_blank">listen</a>` : '—'}</td>
+      <td>${t.status === 'generated' ? `<button onclick="publishTrack(${t.id}, this)">Publish</button>` : ''}</td>
     </tr>`).join('');
-  return `<table><thead><tr><th></th><th>#</th><th>Title</th><th>Status</th><th>Created</th><th>Link</th></tr></thead>
+  return `<table><thead><tr><th></th><th>#</th><th>Title</th><th>Status</th><th>Created</th><th>Link</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table>`;
 }
 
@@ -189,6 +209,33 @@ def run_dashboard(settings: Settings, host: str = "127.0.0.1", port: int = 8913,
             else:
                 self.send_response(404)
                 self.end_headers()
+
+        def do_POST(self):  # noqa: N802
+            if self.path.startswith("/publish/"):
+                self._publish(self.path.removeprefix("/publish/"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _publish(self, track_id_str: str):
+            if not track_id_str.isdigit():
+                self._json_response(400, {"error": "Invalid track id"})
+                return
+            try:
+                soundcloud_url = publish_track(settings, int(track_id_str), private=True)
+                self._json_response(200, {"soundcloud_url": soundcloud_url})
+            except TrackNotReady as e:
+                self._json_response(400, {"error": str(e)})
+            except Exception as e:  # noqa: BLE001 — surface any provider error to the dashboard, not a 500 traceback
+                self._json_response(502, {"error": str(e)})
+
+        def _json_response(self, status: int, payload: dict):
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _serve_art(self, track_id_str: str):
             # track_id is looked up in the DB (not used as a raw filename), so

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 import anthropic
 
-from vibemusicians import db
+from vibemusicians import db, env_file
 from vibemusicians.agents import cover_art, distribution, music_generation, persona, songwriter, trend_research
 from vibemusicians.config import Settings
 from vibemusicians.providers.gemini_image import GeminiImageClient
@@ -42,6 +42,65 @@ class AmbiguousArtist(RuntimeError):
 
 class RosterFull(RuntimeError):
     """Raised when adding a new artist would exceed MAX_ARTISTS."""
+
+
+class TrackNotReady(RuntimeError):
+    """Raised when a track can't be published yet (missing audio/art) or already was."""
+
+
+def publish_track(settings: Settings, track_id: int, private: bool = True) -> str | None:
+    """Publish an already-generated track to SoundCloud. Used both right after
+    generation (run_pipeline) and later on demand (dashboard's Publish button) —
+    kept as one function so both paths get the same rotating-token handling.
+    """
+    track = db.get_track(settings.db_path, track_id)
+    if not track:
+        raise TrackNotReady(f"No track #{track_id}.")
+    if track["status"] == "published":
+        raise TrackNotReady(f"Track #{track_id} is already published.")
+    if not track.get("audio_path") or not track.get("cover_art_path"):
+        raise TrackNotReady(f"Track #{track_id} isn't fully generated yet (missing audio or cover art).")
+
+    artist = db.get_artist(settings.db_path, track["artist_id"])
+    if not artist:
+        raise TrackNotReady(f"Track #{track_id} has no associated artist.")
+
+    song = {
+        "title": track["title"],
+        "lyrics": track.get("lyrics"),
+        "style_prompt": track["style_prompt"],
+        "negative_tags": track.get("negative_tags"),
+        "instrumental": bool(track.get("instrumental")),
+        "creative_rationale": track.get("creative_rationale") or "",
+    }
+
+    def _persist_rotated_token(new_token: str, settings: Settings = settings) -> None:
+        # Update in-memory settings immediately too, not just the file — a
+        # single process can publish multiple tracks in one run, and the next
+        # call must not hand SoundCloud the now-invalidated old token still
+        # sitting in this already-loaded settings object.
+        settings.soundcloud_refresh_token = new_token
+        env_file.upsert("SOUNDCLOUD_REFRESH_TOKEN", new_token)
+        settings.soundcloud_token_path.write_text(new_token)
+
+    soundcloud = SoundCloudClient(
+        client_id=settings.soundcloud_client_id or "",
+        client_secret=settings.soundcloud_client_secret or "",
+        refresh_token=settings.soundcloud_refresh_token or "",
+        on_token_rotated=_persist_rotated_token,
+    )
+    result = distribution.publish(
+        soundcloud, track["audio_path"], song, artist, private=private, artwork_path=track["cover_art_path"]
+    )
+    soundcloud_url = result.get("permalink_url")
+    db.update_track(
+        settings.db_path,
+        track_id,
+        soundcloud_track_id=str(result.get("id", "")),
+        soundcloud_url=soundcloud_url,
+        status="published",
+    )
+    return soundcloud_url
 
 
 def run_pipeline(
@@ -120,6 +179,7 @@ def run_pipeline(
             style_prompt=song["style_prompt"],
             negative_tags=song.get("negative_tags"),
             instrumental=song["instrumental"],
+            creative_rationale=song.get("creative_rationale"),
             trend_brief=trend_brief,
             status="generating",
         ),
@@ -145,22 +205,7 @@ def run_pipeline(
     soundcloud_url = None
     if publish:
         log.info("Publishing to SoundCloud...")
-        soundcloud = SoundCloudClient(
-            client_id=settings.soundcloud_client_id or "",
-            client_secret=settings.soundcloud_client_secret or "",
-            refresh_token=settings.soundcloud_refresh_token or "",
-        )
-        result = distribution.publish(
-            soundcloud, audio_path, song, artist, private=private, artwork_path=cover_art_path
-        )
-        soundcloud_url = result.get("permalink_url")
-        db.update_track(
-            settings.db_path,
-            track_id,
-            soundcloud_track_id=str(result.get("id", "")),
-            soundcloud_url=soundcloud_url,
-            status="published",
-        )
+        soundcloud_url = publish_track(settings, track_id, private=private)
         log.info("Published: %s", soundcloud_url)
 
     return RunResult(

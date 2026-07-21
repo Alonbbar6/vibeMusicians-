@@ -13,7 +13,7 @@ import mimetypes
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import httpx
 
@@ -80,7 +80,13 @@ def exchange_code_for_token(
 class SoundCloudClient:
     """Uses a stored refresh token to mint access tokens and upload tracks."""
 
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str):
+    def __init__(
+        self,
+        client_id: str,
+        client_secret: str,
+        refresh_token: str,
+        on_token_rotated: Callable[[str], None] | None = None,
+    ):
         if not (client_id and client_secret and refresh_token):
             raise SoundCloudError(
                 "SoundCloud is not configured — run `vibemusicians soundcloud login` first"
@@ -88,6 +94,7 @@ class SoundCloudClient:
         self.client_id = client_id
         self.client_secret = client_secret
         self.refresh_token = refresh_token
+        self.on_token_rotated = on_token_rotated
         self._access_token: str | None = None
 
     def _refresh(self) -> str:
@@ -105,9 +112,14 @@ class SoundCloudClient:
         resp.raise_for_status()
         body = resp.json()
         self._access_token = body["access_token"]
-        # SoundCloud rotates refresh tokens on every refresh — persist the new one.
-        if body.get("refresh_token"):
-            self.refresh_token = body["refresh_token"]
+        # SoundCloud rotates refresh tokens on every refresh and invalidates the
+        # old one immediately, so the caller must persist this somewhere that
+        # survives past this process, or every future run fails with a 400.
+        new_refresh_token = body.get("refresh_token")
+        if new_refresh_token and new_refresh_token != self.refresh_token:
+            self.refresh_token = new_refresh_token
+            if self.on_token_rotated:
+                self.on_token_rotated(new_refresh_token)
         return self._access_token
 
     def upload_track(

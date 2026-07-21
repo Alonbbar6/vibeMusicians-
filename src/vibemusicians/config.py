@@ -48,9 +48,22 @@ class Settings(BaseSettings):
     def tracks_dir(self) -> Path:
         return self.data_dir / "tracks"
 
+    @property
+    def soundcloud_token_path(self) -> Path:
+        return self.data_dir / "soundcloud_refresh_token"
+
 
 def get_settings() -> Settings:
     settings = Settings()
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.tracks_dir.mkdir(parents=True, exist_ok=True)
+
+    # SoundCloud rotates this token on every use and invalidates the old one,
+    # so whatever a prior run last wrote here is more current than the
+    # SOUNDCLOUD_REFRESH_TOKEN env var / .env value — this file is what
+    # actually survives across separate CI job runs (each a fresh container,
+    # no .env), committed alongside data/vibemusicians.db.
+    if settings.soundcloud_token_path.exists():
+        settings.soundcloud_refresh_token = settings.soundcloud_token_path.read_text().strip()
+
     return settings

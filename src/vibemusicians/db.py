@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     style_prompt TEXT NOT NULL,
     negative_tags TEXT,
     instrumental INTEGER NOT NULL DEFAULT 0,
+    creative_rationale TEXT,
     trend_brief TEXT,
     suno_task_id TEXT,
     audio_path TEXT,
@@ -56,6 +57,8 @@ def _migrate_legacy_persona(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tracks ADD COLUMN artist_id INTEGER REFERENCES artists(id)")
     if not _column_exists(conn, "tracks", "cover_art_path"):
         conn.execute("ALTER TABLE tracks ADD COLUMN cover_art_path TEXT")
+    if not _column_exists(conn, "tracks", "creative_rationale"):
+        conn.execute("ALTER TABLE tracks ADD COLUMN creative_rationale TEXT")
 
     has_legacy_table = conn.execute(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'persona'"
@@ -135,6 +138,7 @@ class Track:
     lyrics: str | None = None
     negative_tags: str | None = None
     instrumental: bool = False
+    creative_rationale: str | None = None
     trend_brief: str | None = None
     suno_task_id: str | None = None
     audio_path: str | None = None
@@ -149,8 +153,10 @@ def create_track(db_path: Path, track: Track) -> int:
     with connect(db_path) as conn:
         cur = conn.execute(
             """
-            INSERT INTO tracks (artist_id, title, lyrics, style_prompt, negative_tags, instrumental, trend_brief, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tracks
+                (artist_id, title, lyrics, style_prompt, negative_tags, instrumental,
+                 creative_rationale, trend_brief, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 track.artist_id,
@@ -159,6 +165,7 @@ def create_track(db_path: Path, track: Track) -> int:
                 track.style_prompt,
                 track.negative_tags,
                 int(track.instrumental),
+                track.creative_rationale,
                 track.trend_brief,
                 track.status,
             ),
