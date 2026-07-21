@@ -78,6 +78,64 @@ def set_track_sharing(settings: Settings, track_id: int, private: bool) -> None:
     soundcloud.set_sharing(track["soundcloud_track_id"], private=private)
 
 
+def resume_track(settings: Settings, track_id: int, publish: bool = True, private: bool = True) -> RunResult:
+    """Finish an interrupted track — pick up from whichever stage it stopped at
+    (Suno audio, cover art, or SoundCloud publish) using the song/artist data
+    already stored, without repeating trend research or songwriting. Fixes
+    tracks orphaned by a crash or a killed process mid-run.
+    """
+    track = db.get_track(settings.db_path, track_id)
+    if not track:
+        raise TrackNotReady(f"No track #{track_id}.")
+    if track["status"] == "published":
+        raise TrackNotReady(f"Track #{track_id} is already published.")
+
+    artist = db.get_artist(settings.db_path, track["artist_id"])
+    if not artist:
+        raise TrackNotReady(f"Track #{track_id} has no associated artist.")
+
+    song = {
+        "title": track["title"],
+        "lyrics": track.get("lyrics"),
+        "style_prompt": track["style_prompt"],
+        "negative_tags": track.get("negative_tags"),
+        "instrumental": bool(track.get("instrumental")),
+        "creative_rationale": track.get("creative_rationale") or "",
+    }
+
+    audio_path = track.get("audio_path")
+    if not audio_path:
+        log.info("Resuming track #%s: generating audio with Suno...", track_id)
+        suno = SunoClient(
+            settings.suno_api_base_url,
+            settings.suno_api_key or "",
+            settings.suno_model,
+            callback_url=settings.suno_callback_url,
+        )
+        task_id, audio_path = music_generation.generate(suno, song, settings.tracks_dir, track_id)
+        db.update_track(settings.db_path, track_id, suno_task_id=task_id, audio_path=audio_path, status="generated")
+
+    cover_art_path = track.get("cover_art_path")
+    if not cover_art_path:
+        log.info("Resuming track #%s: generating cover art...", track_id)
+        image_client = GeminiImageClient(settings.gemini_api_key or "", model=settings.gemini_image_model)
+        cover_art_path = cover_art.generate(image_client, artist, song, settings.tracks_dir, track_id)
+        db.update_track(settings.db_path, track_id, cover_art_path=cover_art_path)
+
+    soundcloud_url = track.get("soundcloud_url")
+    if publish and not soundcloud_url:
+        log.info("Resuming track #%s: publishing to SoundCloud...", track_id)
+        soundcloud_url = publish_track(settings, track_id, private=private)
+
+    return RunResult(
+        track_id=track_id,
+        title=track["title"],
+        audio_path=audio_path,
+        cover_art_path=cover_art_path,
+        soundcloud_url=soundcloud_url,
+    )
+
+
 def publish_track(settings: Settings, track_id: int, private: bool = True) -> str | None:
     """Publish an already-generated track to SoundCloud. Used both right after
     generation (run_pipeline) and later on demand (dashboard's Publish button) —

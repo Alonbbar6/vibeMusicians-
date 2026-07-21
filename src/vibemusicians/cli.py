@@ -111,6 +111,28 @@ def tracks(artist: str = typer.Option(None, help="Only show tracks for this arti
 
 
 @app.command()
+def resume(
+    track_id: int,
+    publish: bool = typer.Option(True, help="Publish to SoundCloud once finished"),
+    private: bool = typer.Option(False, help="Upload as private instead of public"),
+):
+    """Finish a track that got interrupted partway (missing audio, cover art, or publish)."""
+    from vibemusicians.orchestrator import TrackNotReady, resume_track
+
+    settings = get_settings()
+    try:
+        result = resume_track(settings, track_id, publish=publish, private=private)
+    except TrackNotReady as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+    typer.echo(f"Done: track #{result.track_id} — {result.title!r}")
+    typer.echo(f"Audio: {result.audio_path}")
+    typer.echo(f"Cover art: {result.cover_art_path}")
+    if result.soundcloud_url:
+        typer.echo(f"SoundCloud: {result.soundcloud_url}")
+
+
+@app.command()
 def make_public(track_id: int):
     """Flip an already-published track from private to public on SoundCloud."""
     from vibemusicians.orchestrator import TrackNotReady, set_track_sharing
