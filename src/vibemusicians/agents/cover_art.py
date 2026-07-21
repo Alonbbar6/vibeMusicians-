@@ -8,7 +8,9 @@ keeps each cover unique) — no extra LLM call needed, just string assembly.
 from pathlib import Path
 from typing import Any
 
-from vibemusicians.providers.image import ImageClient
+from vibemusicians.providers.gemini_image import GeminiImageClient
+
+_EXTENSION_BY_MIME_TYPE = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
 
 def build_prompt(persona: dict[str, Any], song: dict[str, Any]) -> str:
@@ -21,13 +23,12 @@ def build_prompt(persona: dict[str, Any], song: dict[str, Any]) -> str:
     )
 
 
-def generate(image_client: ImageClient, persona: dict[str, Any], song: dict[str, Any], output_dir: Path, track_id: int) -> str:
+def generate(image_client: GeminiImageClient, persona: dict[str, Any], song: dict[str, Any], output_dir: Path, track_id: int) -> str:
     """Generate cover art for `song`. Returns the saved file path."""
     prompt = build_prompt(persona, song)
-    task_id = image_client.generate(prompt, size="1:1")
-    images = image_client.wait_for_completion(task_id)
-    best = images[0]
+    image = image_client.generate(prompt)
 
-    destination = output_dir / f"{track_id:04d}_cover.png"
-    image_client.download(best, str(destination))
+    extension = _EXTENSION_BY_MIME_TYPE.get(image.mime_type, ".png")
+    destination = output_dir / f"{track_id:04d}_cover{extension}"
+    image_client.download(image, str(destination))
     return str(destination)

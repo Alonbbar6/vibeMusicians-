@@ -9,6 +9,7 @@ without touching the pipeline — see agents/distribution.py.
 
 import base64
 import hashlib
+import mimetypes
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,7 +126,8 @@ class SoundCloudClient:
             artwork_file = open(artwork_path, "rb") if artwork_path else None
             try:
                 if artwork_file:
-                    files["track[artwork_data]"] = (Path(artwork_path).name, artwork_file, "image/png")
+                    content_type = mimetypes.guess_type(artwork_path)[0] or "image/png"
+                    files["track[artwork_data]"] = (Path(artwork_path).name, artwork_file, content_type)
                 resp = httpx.post(
                     f"{API_BASE}/tracks",
                     headers={"Authorization": f"Bearer {access_token}"},

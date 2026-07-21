@@ -12,7 +12,7 @@ import anthropic
 from vibemusicians import db
 from vibemusicians.agents import cover_art, distribution, music_generation, persona, songwriter, trend_research
 from vibemusicians.config import Settings
-from vibemusicians.providers.image import ImageClient
+from vibemusicians.providers.gemini_image import GeminiImageClient
 from vibemusicians.providers.soundcloud import SoundCloudClient
 from vibemusicians.providers.suno import SunoClient
 
@@ -137,9 +137,7 @@ def run_pipeline(
     log.info("Audio saved to %s", audio_path)
 
     log.info("Generating cover art...")
-    image_client = ImageClient(
-        settings.suno_api_base_url, settings.suno_api_key or "", callback_url=settings.suno_callback_url
-    )
+    image_client = GeminiImageClient(settings.gemini_api_key or "", model=settings.gemini_image_model)
     cover_art_path = cover_art.generate(image_client, artist, song, settings.tracks_dir, track_id)
     db.update_track(settings.db_path, track_id, cover_art_path=cover_art_path)
     log.info("Cover art saved to %s", cover_art_path)

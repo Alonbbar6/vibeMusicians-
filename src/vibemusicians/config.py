@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # real reachable endpoint — see providers/suno.py.
     suno_callback_url: str = "https://example.com/vibemusicians-callback"
 
+    # Gemini (cover art — separate provider from Suno, synchronous, no polling)
+    gemini_api_key: str | None = None
+    gemini_image_model: str = "gemini-2.5-flash-image"
+
     # SoundCloud
     soundcloud_client_id: str | None = None
     soundcloud_client_secret: str | None = None
