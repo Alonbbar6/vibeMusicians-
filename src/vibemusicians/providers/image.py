@@ -54,7 +54,7 @@ class ImageClient:
         return task_id
 
     def wait_for_completion(
-        self, task_id: str, poll_seconds: float = 10.0, timeout_seconds: float = 300.0
+        self, task_id: str, poll_seconds: float = 10.0, timeout_seconds: float = 600.0
     ) -> list[GeneratedImage]:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
