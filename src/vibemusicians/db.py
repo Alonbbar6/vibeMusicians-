@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS trend_cache (
     brief TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS replied_comments (
+    comment_id TEXT PRIMARY KEY,
+    track_id INTEGER NOT NULL REFERENCES tracks(id),
+    reply_body TEXT NOT NULL,
+    replied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -256,4 +263,20 @@ def save_trend_brief(db_path: Path, brief: str) -> None:
             ON CONFLICT(id) DO UPDATE SET brief = excluded.brief, created_at = excluded.created_at
             """,
             (brief,),
+        )
+
+
+def is_comment_replied(db_path: Path, comment_id: str) -> bool:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM replied_comments WHERE comment_id = ?", (comment_id,)
+        ).fetchone()
+        return row is not None
+
+
+def record_comment_reply(db_path: Path, comment_id: str, track_id: int, reply_body: str) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO replied_comments (comment_id, track_id, reply_body) VALUES (?, ?, ?)",
+            (comment_id, track_id, reply_body),
         )

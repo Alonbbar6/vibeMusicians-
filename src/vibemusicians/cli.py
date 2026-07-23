@@ -133,6 +133,30 @@ def resume(
 
 
 @app.command()
+def reply_comments(
+    artist: str = typer.Option(None, help="Only reply on this artist's tracks; default is the whole roster"),
+    max_replies: int = typer.Option(20, help="Stop after replying to this many comments this run"),
+):
+    """Reply to SoundCloud comments in the artist's own voice, skipping ones already answered."""
+    from vibemusicians.orchestrator import ArtistNotFound, reply_to_comments
+
+    settings = get_settings()
+    try:
+        results = reply_to_comments(settings, artist_name=artist, max_replies=max_replies)
+    except ArtistNotFound as e:
+        typer.echo(str(e))
+        raise typer.Exit(1)
+    if not results:
+        typer.echo("No new comments to reply to.")
+        return
+    for r in results:
+        who = f"@{r.commenter}" if r.commenter else "a listener"
+        typer.echo(f"\n#{r.track_id} {r.track_title!r} — {who}: {r.comment_body!r}")
+        typer.echo(f"  -> {r.reply_body!r}")
+    typer.echo(f"\nReplied to {len(results)} comment(s).")
+
+
+@app.command()
 def make_public(track_id: int):
     """Flip an already-published track from private to public on SoundCloud."""
     from vibemusicians.orchestrator import TrackNotReady, set_track_sharing

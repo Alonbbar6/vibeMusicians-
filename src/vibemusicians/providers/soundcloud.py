@@ -135,6 +135,43 @@ class SoundCloudClient:
                 self.on_token_rotated(new_refresh_token)
         return self._access_token
 
+    def get_current_user(self) -> dict[str, Any]:
+        access_token = self._refresh()
+        resp = httpx.get(
+            f"{API_BASE}/me",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=30.0,
+        )
+        if resp.status_code >= 400:
+            raise SoundCloudError(f"SoundCloud get current user failed ({resp.status_code}): {resp.text}")
+        return resp.json()
+
+    def list_comments(self, track_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        access_token = self._refresh()
+        resp = httpx.get(
+            f"{API_BASE}/tracks/{track_id}/comments",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params={"limit": limit, "linked_partitioning": "true"},
+            timeout=30.0,
+        )
+        if resp.status_code >= 400:
+            raise SoundCloudError(f"SoundCloud list comments failed ({resp.status_code}): {resp.text}")
+        body = resp.json()
+        # linked_partitioning wraps results in {"collection": [...], "next_href": ...}
+        return body.get("collection", body) if isinstance(body, dict) else body
+
+    def post_comment(self, track_id: str, body: str) -> dict[str, Any]:
+        access_token = self._refresh()
+        resp = httpx.post(
+            f"{API_BASE}/tracks/{track_id}/comments",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json={"comment": {"body": body}},
+            timeout=30.0,
+        )
+        if resp.status_code >= 400:
+            raise SoundCloudError(f"SoundCloud post comment failed ({resp.status_code}): {resp.text}")
+        return resp.json()
+
     def set_sharing(self, track_id: str, private: bool) -> dict[str, Any]:
         access_token = self._refresh()
         resp = httpx.put(

@@ -11,7 +11,7 @@ from pathlib import Path
 import anthropic
 
 from vibemusicians import db, env_file
-from vibemusicians.agents import cover_art, distribution, music_generation, persona, songwriter, trend_research
+from vibemusicians.agents import comment_reply, cover_art, distribution, music_generation, persona, songwriter, trend_research
 from vibemusicians.config import Settings
 from vibemusicians.providers.gemini_image import GeminiImageClient
 from vibemusicians.providers.soundcloud import SoundCloudClient
@@ -305,3 +305,69 @@ def run_pipeline(
         cover_art_path=cover_art_path,
         soundcloud_url=soundcloud_url,
     )
+
+
+@dataclass
+class CommentReply:
+    track_id: int
+    track_title: str
+    commenter: str | None
+    comment_body: str
+    reply_body: str
+
+
+def reply_to_comments(settings: Settings, artist_name: str | None = None, max_replies: int = 20) -> list[CommentReply]:
+    """Fetch comments on published tracks and post an in-character reply to
+    each one not already answered. Scoped to one artist if given, else every
+    artist on the roster. Skips the connected account's own comments (its
+    past replies) so it never replies to itself.
+    """
+    roster = db.list_artists(settings.db_path)
+    if artist_name:
+        roster = [a for a in roster if a["name"].lower() == artist_name.lower()]
+        if not roster:
+            raise ArtistNotFound(f"No artist named {artist_name!r}.")
+
+    claude = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    soundcloud = _soundcloud_client(settings)
+    own_user_id = soundcloud.get_current_user().get("id")
+
+    results: list[CommentReply] = []
+    for artist in roster:
+        tracks = [
+            t
+            for t in db.list_tracks(settings.db_path, artist_id=artist["id"], limit=200)
+            if t.get("soundcloud_track_id")
+        ]
+        for track in tracks:
+            if len(results) >= max_replies:
+                return results
+            comments = soundcloud.list_comments(track["soundcloud_track_id"])
+            for comment in comments:
+                if len(results) >= max_replies:
+                    return results
+                comment_id = str(comment.get("id"))
+                commenter = (comment.get("user") or {}).get("username")
+                commenter_id = (comment.get("user") or {}).get("id")
+                if commenter_id == own_user_id:
+                    continue
+                if db.is_comment_replied(settings.db_path, comment_id):
+                    continue
+
+                reply_body = comment_reply.write_reply(
+                    claude, settings.claude_model, artist, track["title"], comment.get("body", ""), commenter
+                )
+                soundcloud.post_comment(track["soundcloud_track_id"], reply_body)
+                db.record_comment_reply(settings.db_path, comment_id, track["id"], reply_body)
+                results.append(
+                    CommentReply(
+                        track_id=track["id"],
+                        track_title=track["title"],
+                        commenter=commenter,
+                        comment_body=comment.get("body", ""),
+                        reply_body=reply_body,
+                    )
+                )
+                log.info("Replied to %s on %r", commenter or "a listener", track["title"])
+
+    return results
