@@ -6,6 +6,7 @@ track — rerunning `vibemusicians publish <track-id>` can pick it up later.
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import anthropic
 
@@ -103,8 +104,12 @@ def resume_track(settings: Settings, track_id: int, publish: bool = True, privat
         "creative_rationale": track.get("creative_rationale") or "",
     }
 
+    # Check the file actually exists, not just that the DB has a path string —
+    # a track generated on a CI runner has a path that only ever existed on
+    # that (now-gone) ephemeral machine, since only the database is persisted
+    # back, not the audio/art files themselves.
     audio_path = track.get("audio_path")
-    if not audio_path:
+    if not audio_path or not Path(audio_path).exists():
         log.info("Resuming track #%s: generating audio with Suno...", track_id)
         suno = SunoClient(
             settings.suno_api_base_url,
@@ -116,7 +121,7 @@ def resume_track(settings: Settings, track_id: int, publish: bool = True, privat
         db.update_track(settings.db_path, track_id, suno_task_id=task_id, audio_path=audio_path, status="generated")
 
     cover_art_path = track.get("cover_art_path")
-    if not cover_art_path:
+    if not cover_art_path or not Path(cover_art_path).exists():
         log.info("Resuming track #%s: generating cover art...", track_id)
         image_client = GeminiImageClient(settings.gemini_api_key or "", model=settings.gemini_image_model)
         cover_art_path = cover_art.generate(image_client, artist, song, settings.tracks_dir, track_id)
@@ -146,8 +151,14 @@ def publish_track(settings: Settings, track_id: int, private: bool = True) -> st
         raise TrackNotReady(f"No track #{track_id}.")
     if track["status"] == "published":
         raise TrackNotReady(f"Track #{track_id} is already published.")
-    if not track.get("audio_path") or not track.get("cover_art_path"):
+    audio_path, cover_art_path = track.get("audio_path"), track.get("cover_art_path")
+    if not audio_path or not cover_art_path:
         raise TrackNotReady(f"Track #{track_id} isn't fully generated yet (missing audio or cover art).")
+    if not Path(audio_path).exists() or not Path(cover_art_path).exists():
+        raise TrackNotReady(
+            f"Track #{track_id}'s audio/art file is missing from this machine (likely generated on a "
+            "different one, e.g. a CI runner). Use `vibemusicians resume` instead to regenerate it."
+        )
 
     artist = db.get_artist(settings.db_path, track["artist_id"])
     if not artist:

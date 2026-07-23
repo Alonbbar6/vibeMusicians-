@@ -12,7 +12,7 @@ from pathlib import Path
 
 from vibemusicians import db
 from vibemusicians.config import Settings
-from vibemusicians.orchestrator import TrackNotReady, publish_track, set_track_sharing
+from vibemusicians.orchestrator import TrackNotReady, resume_track, set_track_sharing
 
 STATUSES = ["created", "generating", "generated", "published"]
 
@@ -236,8 +236,8 @@ def run_dashboard(settings: Settings, host: str = "127.0.0.1", port: int = 8913,
                 self._json_response(400, {"error": "Invalid track id"})
                 return
             try:
-                soundcloud_url = publish_track(settings, int(track_id_str), private=False)
-                self._json_response(200, {"soundcloud_url": soundcloud_url})
+                result = resume_track(settings, int(track_id_str), publish=True, private=False)
+                self._json_response(200, {"soundcloud_url": result.soundcloud_url})
             except TrackNotReady as e:
                 self._json_response(400, {"error": str(e)})
             except Exception as e:  # noqa: BLE001 — surface any provider error to the dashboard, not a 500 traceback
