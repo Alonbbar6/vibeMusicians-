@@ -40,17 +40,27 @@ class GeminiImageClient:
         )
 
     def generate(self, prompt: str, retries: int = 2, retry_delay: float = 3.0) -> GeneratedImage:
-        # Gemini occasionally returns finishReason "NO_IMAGE" with no error —
-        # a soft, non-deterministic refusal rather than a real failure (seen in
-        # practice: retrying the exact same prompt immediately succeeded).
-        last_error: GeminiImageError | None = None
+        # Retries two distinct transient failure modes, neither a real
+        # rejection of the prompt: Gemini occasionally returns finishReason
+        # "NO_IMAGE" with no error (a soft, non-deterministic refusal — a
+        # retry with the identical prompt has succeeded in practice), and
+        # Google's own infrastructure occasionally 5xx's or drops the
+        # connection under load. A 4xx (bad request, bad API key) is a real
+        # error and is not retried — it'll just fail the same way again.
+        last_error: Exception | None = None
         for attempt in range(retries + 1):
             try:
                 return self._generate_once(prompt)
             except GeminiImageError as e:
                 last_error = e
-                if attempt < retries:
-                    time.sleep(retry_delay)
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code < 500:
+                    raise
+                last_error = e
+            except httpx.TransportError as e:
+                last_error = e
+            if attempt < retries:
+                time.sleep(retry_delay)
         raise last_error
 
     def _generate_once(self, prompt: str) -> GeneratedImage:

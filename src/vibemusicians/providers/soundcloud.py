@@ -11,6 +11,7 @@ import base64
 import hashlib
 import mimetypes
 import secrets
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -98,17 +99,29 @@ class SoundCloudClient:
         self._access_token: str | None = None
 
     def _refresh(self) -> str:
-        resp = httpx.post(
-            TOKEN_URL,
-            data={
-                "grant_type": "refresh_token",
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "refresh_token": self.refresh_token,
-            },
-            headers={"accept": "application/json"},
-            timeout=30.0,
-        )
+        # The refresh token is single-use — SoundCloud invalidates it the
+        # instant the server processes the request, so only ConnectError
+        # (DNS/connection failure, meaning no bytes ever reached the server)
+        # is safe to retry. Any error past that point is ambiguous about
+        # whether the token was already consumed, so it's left to fail.
+        for attempt in range(3):
+            try:
+                resp = httpx.post(
+                    TOKEN_URL,
+                    data={
+                        "grant_type": "refresh_token",
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
+                        "refresh_token": self.refresh_token,
+                    },
+                    headers={"accept": "application/json"},
+                    timeout=30.0,
+                )
+                break
+            except httpx.ConnectError:
+                if attempt == 2:
+                    raise
+                time.sleep(2.0)
         resp.raise_for_status()
         body = resp.json()
         self._access_token = body["access_token"]
