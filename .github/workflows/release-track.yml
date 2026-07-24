@@ -14,6 +14,16 @@ on:
         type: boolean
         default: true
 
+# Never let two runs execute at the same time. The SoundCloud refresh token is
+# single-use — SoundCloud invalidates it the instant it's spent — so if a
+# manual run overlapped a scheduled one, both would start from the same token
+# and the second would die with a 400 on oauth/token. Serializing runs removes
+# that whole class of failure. cancel-in-progress: false lets an in-flight
+# upload finish instead of being killed mid-run.
+concurrency:
+  group: release-track
+  cancel-in-progress: false
+
 permissions:
   contents: write # needed to commit data/vibemusicians.db back after each run
 
@@ -59,21 +69,57 @@ jobs:
             vibemusicians --verbose run --publish
           fi
 
-      # data/ is regenerated fresh in every CI job unless persisted — commit
-      # the track database and the SoundCloud refresh token (which SoundCloud
-      # rotates and invalidates on every use, so the next job needs this
-      # file's value, not the static SOUNDCLOUD_REFRESH_TOKEN secret, past the
-      # very first run) back so state survives across scheduled runs.
-      - name: Persist roster/track database and rotated SoundCloud token
+      # Persist state across runs. Two separate things get saved, two different
+      # ways, and it runs even on failure so a token rotated mid-run is never lost.
+      #
+      #  1) The rotated SoundCloud refresh token -> saved into the repo SECRET
+      #     SOUNDCLOUD_REFRESH_TOKEN (NOT committed to the repo). SoundCloud
+      #     rotates this on every use, so the next run must read the newest one.
+      #     Storing it as a secret keeps it private (even though the repo is
+      #     public) and updates atomically, with no git race to lose it.
+      #
+      #  2) The track database -> committed back to the repo as before, but now
+      #     with pull --rebase + retry so a push can never silently lose an update.
+      - name: Persist rotated SoundCloud token and track database
         if: always()
+        env:
+          # A fine-grained PAT with this repo's "Secrets: Read and write"
+          # permission. Stored as the repo secret SC_TOKEN_WRITE_PAT.
+          # The built-in GITHUB_TOKEN cannot update secrets, so this is required.
+          GH_TOKEN: ${{ secrets.SC_TOKEN_WRITE_PAT }}
         run: |
+          # 1) Save the rotated SoundCloud refresh token into the repo secret.
+          if [ -f data/soundcloud_refresh_token ]; then
+            if [ -n "$GH_TOKEN" ]; then
+              gh secret set SOUNDCLOUD_REFRESH_TOKEN --body "$(cat data/soundcloud_refresh_token)" \
+                && echo "Updated SOUNDCLOUD_REFRESH_TOKEN secret with the rotated token." \
+                || echo "WARNING: could not update the SOUNDCLOUD_REFRESH_TOKEN secret (check the SC_TOKEN_WRITE_PAT PAT)."
+            else
+              echo "WARNING: SC_TOKEN_WRITE_PAT is not set — the rotated token was NOT saved."
+              echo "         Add that secret (see the apply guide) or the token will expire again."
+            fi
+            # Make sure the token file is never committed into the repo.
+            rm -f data/soundcloud_refresh_token
+          fi
+
+          # 2) Commit the track database, pulling/rebasing first and retrying the
+          #    push so a concurrent update can never make us silently lose state.
           git config user.name "vibemusicians-bot"
           git config user.email "actions@users.noreply.github.com"
-          [ -f data/vibemusicians.db ] && git add -f data/vibemusicians.db
-          [ -f data/soundcloud_refresh_token ] && git add -f data/soundcloud_refresh_token
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update track database [skip ci]"
-            git push
-          else
-            echo "Nothing new to persist."
+          if [ -f data/vibemusicians.db ]; then
+            git add -f data/vibemusicians.db
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update track database [skip ci]"
+              pushed=""
+              for attempt in 1 2 3 4 5; do
+                if git pull --rebase --autostash && git push; then
+                  pushed="yes"; break
+                fi
+                echo "push attempt $attempt failed; retrying in 3s..."
+                sleep 3
+              done
+              [ -n "$pushed" ] || echo "WARNING: could not push the updated database after 5 attempts."
+            else
+              echo "Database unchanged — nothing to commit."
+            fi
           fi
