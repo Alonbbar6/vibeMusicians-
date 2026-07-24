@@ -97,6 +97,21 @@ class SoundCloudClient:
         self.refresh_token = refresh_token
         self.on_token_rotated = on_token_rotated
         self._access_token: str | None = None
+        # Unix time (seconds) after which the cached access token is considered
+        # expired. 0 means "no valid token yet".
+        self._access_expires_at: float = 0.0
+
+    def _access(self) -> str:
+        # Access tokens are valid for ~1 hour, so reuse the one we already have
+        # until it's close to expiring. Only then do we spend a single-use
+        # refresh token to mint a new one. This is the key reliability fix:
+        # the old code refreshed on EVERY API call, which rotated (and
+        # invalidated) the refresh token several times per run and multiplied
+        # the chance of a lost update leaving the stored token dead. Now a
+        # whole run normally spends exactly one refresh token.
+        if self._access_token and time.time() < self._access_expires_at:
+            return self._access_token
+        return self._refresh()
 
     def _refresh(self) -> str:
         # The refresh token is single-use — SoundCloud invalidates it the
@@ -125,6 +140,11 @@ class SoundCloudClient:
         resp.raise_for_status()
         body = resp.json()
         self._access_token = body["access_token"]
+        # Cache how long this access token is good for (default to 1 hour if
+        # SoundCloud omits expires_in), minus a 60s safety margin so we never
+        # use one that expires mid-request.
+        expires_in = int(body.get("expires_in", 3600))
+        self._access_expires_at = time.time() + max(0, expires_in - 60)
         # SoundCloud rotates refresh tokens on every refresh and invalidates the
         # old one immediately, so the caller must persist this somewhere that
         # survives past this process, or every future run fails with a 400.
@@ -136,7 +156,7 @@ class SoundCloudClient:
         return self._access_token
 
     def get_current_user(self) -> dict[str, Any]:
-        access_token = self._refresh()
+        access_token = self._access()
         resp = httpx.get(
             f"{API_BASE}/me",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -147,7 +167,7 @@ class SoundCloudClient:
         return resp.json()
 
     def list_comments(self, track_id: str, limit: int = 50) -> list[dict[str, Any]]:
-        access_token = self._refresh()
+        access_token = self._access()
         resp = httpx.get(
             f"{API_BASE}/tracks/{track_id}/comments",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -161,7 +181,7 @@ class SoundCloudClient:
         return body.get("collection", body) if isinstance(body, dict) else body
 
     def post_comment(self, track_id: str, body: str) -> dict[str, Any]:
-        access_token = self._refresh()
+        access_token = self._access()
         resp = httpx.post(
             f"{API_BASE}/tracks/{track_id}/comments",
             headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
@@ -173,7 +193,7 @@ class SoundCloudClient:
         return resp.json()
 
     def set_sharing(self, track_id: str, private: bool) -> dict[str, Any]:
-        access_token = self._refresh()
+        access_token = self._access()
         resp = httpx.put(
             f"{API_BASE}/tracks/{track_id}",
             headers={"Authorization": f"Bearer {access_token}"},
@@ -194,7 +214,7 @@ class SoundCloudClient:
         private: bool = True,
         artwork_path: str | None = None,
     ) -> dict[str, Any]:
-        access_token = self._refresh()
+        access_token = self._access()
         with open(audio_path, "rb") as audio_file:
             files = {"track[asset_data]": (Path(audio_path).name, audio_file, "audio/mpeg")}
             artwork_file = open(artwork_path, "rb") if artwork_path else None
